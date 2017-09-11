@@ -3,8 +3,6 @@
 Here, we'll show how to set up OpenStack as Kubernetes cloud provider. The main I've used this was to make it possible to create LoadBalancer services without being attached to a public cloud provider such as Google or Amazon.
 With OpenStack as cloud providers, Kubernetes is able to request an LB from OpenStack LBaaS API.
 
-# TODO explicar CP
-
 This tutorial assumes you have:
 
 * A running Kubernetes cluster. If you don't, follow these [steps](https://github.com/henriquetruta/kubernetes-tutorials/tree/master/kubeadm)
@@ -144,6 +142,127 @@ systemctl daemon-reload
 systemctl restart kubelet
 ```
 
+### Checking if it worked
+
+There are several ways to see if your changes were succesfully applied. One of them is to look for the processes running in the nodes. For example, in the any node you can see whether the `kubelet` is running with the `cloud` properties you set. Check it with:
+
+```bash
+$ ps xau | grep /usr/bin/kubelet
+root     21647  4.5  4.5 421688 93740 ?        Ssl  15:06   0:08 /usr/bin/kubelet --kubeconfig=/etc/kubernetes/kubelet.conf --require-kubeconfig=true --cloud-provider=openstack --cloud-config=/etc/kubernetes/cloud.conf --pod-manifest-path=/etc/kubernetes/manifests --allow-privileged=true --network-plugin=cni --cni-conf-dir=/etc/cni/net.d --cni-bin-dir=/opt/cni/bin --cluster-dns=10.96.0.10 --cluster-domain=cluster.local --authorization-mode=Webhook --client-ca-file=/etc/kubernetes/pki/ca.crt --cadvisor-port=0
+```
+
+In this case, you can see that both flags were provided. `kubelet` must see those changes in all nodes of your cluster.
+
+To see the changes in `kube-controller-manager` you can see by looking at the process, or you can also investigate the output of:
+
+```bash
+kubectl describe po kube-controller-manager -n kube-system
+```
+
+Again, take a look if your properties were properly applied. If so, contrats! Your kubernetes cluster now has OpenStack as its cloud provider.
+
 ### Testing your cloud provider
 
+First, create a deployment, i.e. run an application on your Kubernetes cluster. At this repo, you have an application called `microbot` that basically just prints the name of the pod that served the request. The files are available in this repo. Create it with:
+
+```bash
+kubectl create -f resources/microbot_deploy.yaml
+```
+
+Wait for all pods to be ready. And then, you can expose this application, i.e. create a service that will make this application available outside of the cluster. This service will be created with the `LoadBalancer` type, which is only possible as we have a cloud provider in our Kubernetes cluser.
+
+What happens here is that Kubernetes delegates the creation of the Load Balancer to the cloud provider API, that in this case is to Neutron's LBaaS API.
+
+To expose this service, we have two options. It can be in a private or public network.
+
+#### Private LB
+
+The first is creating the Load Balancer in the private network, with the `subnet-id` provided in the `cloud.conf` file. To do so, just create it with the following command:
+
+```bash
+kubectl create -f resources/microbot_svc_private.yaml
+```
+
+This file is very straightforward if you know the service concept. We are basically making the deployment available at the port 80, which will have requests handled by OpenStack's LB. List the services and wait for it to get an External IP.
+
+Once it gets an external IP, you can curl it and see which pod has served the request. Remember that as this is an internal LB, you should be in a point where this network is reachable.
+
+```bash
+$ kubectl get svc microbot
+NAME       CLUSTER-IP     EXTERNAL-IP        PORT(S)        AGE
+microbot   10.106.83.25   10.11.4.52         80:30080/TCP   1m
+
+$ kubectl get po
+NAME                        READY     STATUS    RESTARTS   AGE
+microbot-4136705477-c45fs   1/1       Running   0          19m
+microbot-4136705477-l9m52   1/1       Running   0          19m
+microbot-4136705477-mdx7w   1/1       Running   0          19m
+
+$ curl 10.11.4.52
+<!DOCTYPE html>
+<html>
+  <style type="text/css">
+    .centered
+      {
+      text-align:center;
+      margin-top:0px;
+      margin-bottom:0px;
+      padding:0px;
+      }
+  </style>
+  <body>
+    <p class="centered"><img src="microbot.png" alt="microbot"/></p>
+    <p class="centered">Container hostname: microbot-4136705477-l9m52</p>
+  </body>
+</html>
+```
+
+And you can see that `microbot-4136705477-l9m52` is in our pods list.
+
+#### Public LB
+
+The other option to expose the service, is to make it publicly available, which happens if you have free Floating IPs in your OpenStack project. If you do have, you can create the service using the `microbot_svc_public` file. The only difference here is that we tell Kubernetes that we don't want a service that is only internal and we specify the public network to expose the service. If you open this file, you'll see the two new fields, passed through annotations:
+
+```yaml
+$ cat resources/microbot_svc_public.yaml
+...
+  annotations:
+    service.beta.kubernetes.io/openstack-internal-load-balancer: "false"
+    loadbalancer.openstack.org/floating-network-id: "9cdf8226-fd6c-499a-994e-d12e51a498af"
+...
+```
+
+> Note: This is only available in Kubernetes versions >=1.8, which in the time I'm writing this is in 1.8.0 alpha 3.
+
+Here, you just need to edit the `floating-network-id` field to have the ID of your public network, and then run:
+
+```bash
+$ kubectl create -f resources/microbot_svc_public.yaml
+service "microbot" created
+
+# Look for the Load Balancer Ingress field, which is the same as the External IP
+$ kubectl describe svc microbot | grep Ingress
+LoadBalancer Ingress: 10.11.4.52, 150.46.85.53
+```
+
+You can see here that my Load Balancer got two IP addresses. The first, private, and the second, a public one. If you `curl` either of them, you should get the same result.
+
+And that's it! You exposed your service as Load Balancer, using OpenStack as cloud provider!
+
 ## External cloud-providers
+
+Kubernete community is moving towards removing the cloud providers specific code from the [main tree](https://github.com/kubernetes/kubernetes/tree/master/pkg/cloudprovider/providers) as it's now. The idea here is to have each cloud provider maintaining its code in a separate repository. What's going to change for the kubernetes admin is that instead of passing `cloud-provider=<provider>` it will pass it `cloud-provider=external` and pass the credentials and other attributes to a new component called `cloud-controller-manager`.
+
+At the moment I'm writing this, there is no support for OpenStack as an external cloud provider yet. I've described my efforts on [this issue](https://github.com/kubernetes/kubernetes/issues/52276).
+
+If you want to keep track this migration to external cloud providers, which will happen at most in release 1.9, follow it [here](https://github.com/kubernetes/kubernetes/issues?utf8=%E2%9C%93&q=is%3Aissue%20is%3Aopen%20label%3Aarea%2Fcloudprovider%20) and [here](https://docs.google.com/document/d/1m4Kvnh_u_9cENEE9n1ifYowQEFSgiHnbw43urGJMB64/edit#heading=h.rkwrsiw228ev).
+
+## Issues
+
+I've found some problems during this, which I intend to solve in a short future
+
+* Using OpenStack as `external`, which will be the default soon
+* We should have a way of telling Kubernetes we don't want both private and public IPs, but only public
+* Documentation is still poor (feature in development, I suppose)
+
+Thanks! If anything, contact me at henriquecostatruta@gmail.com or `htruta` in Kubernetes Slack.
