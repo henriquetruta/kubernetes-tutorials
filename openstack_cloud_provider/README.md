@@ -1,6 +1,6 @@
 # Setting OpenStack as a Kubernetes Cloud Provider
 
-Here, we'll show how to set up OpenStack as Kubernetes cloud provider. The main I've used this was to make it possible to create LoadBalancer services without being attached to a public cloud provider such as Google or Amazon.
+Here, we'll show how to set up OpenStack as Kubernetes cloud provider. The main reason I've used this was to make it possible to create LoadBalancer services without being attached to a public cloud provider such as Google or Amazon.
 With OpenStack as cloud providers, Kubernetes is able to request an LB from OpenStack LBaaS API.
 
 This tutorial assumes you have:
@@ -264,5 +264,7 @@ I've found some problems during this, which I intend to solve in a short future
 * Using OpenStack as `external`, which will be the default soon
 * We should have a way of telling Kubernetes we don't want both private and public IPs, but only public
 * Documentation is still poor (feature in development, I suppose)
+* (Federation) Both External IPs, private and public are written in DNS zone
+* (Federation) When service is unhealthy, DNS records aren't properly managed
 
 Thanks! If anything, contact me at henriquecostatruta@gmail.com or `htruta` in Kubernetes Slack.
