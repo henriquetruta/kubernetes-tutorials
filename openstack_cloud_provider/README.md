@@ -6,7 +6,7 @@ With OpenStack as cloud providers, Kubernetes is able to request an LB from Open
 This tutorial assumes you have:
 
 * A running Kubernetes cluster. If you don't, follow these [steps](https://github.com/henriquetruta/kubernetes-tutorials/tree/master/kubeadm)
-* SSH access to the kuberentes cluster nodes (master and slaves)
+* SSH access to the kubernetes cluster nodes (master and slaves)
 * Access to an OpenStack cloud, and this cloud is reachable by the Kubernetes nodes, i.e. they can access Keystone to authenticate and are able to communicate with Neutron
 * A basic understanding of OpenStack resources, such as projects, domains, load balancers
 * (Optional): If you want to use Floating IPs to expose your LoadBalancers, you must use a Kubernetes version >= 1.8
@@ -35,7 +35,7 @@ Where:
 * `auth-url` is the keystone endpoint. Find it in horizon in Access and Security > API Access > Credentials
 * `tenant-id` is the id of the project (tenant) you want to create your resources on
 * `domain-id`is the id of the domain your user belongs to
-* `subnet-id` is the id of the subnet you want to create your loadabalancer on. Get it in Network > Networks and click on the respective network to get its subnets
+* `subnet-id` is the id of the subnet you want to create your loadbalancer on. Get it in Network > Networks and click on the respective network to get its subnets
 
 There are other sections we're not going to cover here, such as the one that provides volumes to Kubernetes via Cinder:
 
@@ -144,7 +144,7 @@ systemctl restart kubelet
 
 ### Checking if it worked
 
-There are several ways to see if your changes were succesfully applied. One of them is to look for the processes running in the nodes. For example, in the any node you can see whether the `kubelet` is running with the `cloud` properties you set. Check it with:
+There are several ways to see if your changes were successfully applied. One of them is to look for the processes running in the nodes. For example, in the any node you can see whether the `kubelet` is running with the `cloud` properties you set. Check it with:
 
 ```bash
 $ ps xau | grep /usr/bin/kubelet
@@ -159,7 +159,7 @@ To see the changes in `kube-controller-manager` you can see by looking at the pr
 kubectl describe po kube-controller-manager -n kube-system
 ```
 
-Again, take a look if your properties were properly applied. If so, contrats! Your kubernetes cluster now has OpenStack as its cloud provider.
+Again, take a look if your properties were properly applied. If so, congrats! Your kubernetes cluster now has OpenStack as its cloud provider.
 
 ### Testing your cloud provider
 
@@ -169,7 +169,7 @@ First, create a deployment, i.e. run an application on your Kubernetes cluster. 
 kubectl create -f resources/microbot_deploy.yaml
 ```
 
-Wait for all pods to be ready. And then, you can expose this application, i.e. create a service that will make this application available outside of the cluster. This service will be created with the `LoadBalancer` type, which is only possible as we have a cloud provider in our Kubernetes cluser.
+Wait for all pods to be ready. And then, you can expose this application, i.e. create a service that will make this application available outside of the cluster. This service will be created with the `LoadBalancer` type, which is only possible as we have a cloud provider in our Kubernetes cluster.
 
 What happens here is that Kubernetes delegates the creation of the Load Balancer to the cloud provider API, that in this case is to Neutron's LBaaS API.
 
@@ -251,7 +251,7 @@ And that's it! You exposed your service as Load Balancer, using OpenStack as clo
 
 ## External cloud-providers
 
-Kubernete community is moving towards removing the cloud providers specific code from the [main tree](https://github.com/kubernetes/kubernetes/tree/master/pkg/cloudprovider/providers) as it's now. The idea here is to have each cloud provider maintaining its code in a separate repository. What's going to change for the kubernetes admin is that instead of passing `cloud-provider=<provider>` it will pass it `cloud-provider=external` and pass the credentials and other attributes to a new component called `cloud-controller-manager`.
+Kubernetes community is moving towards removing the cloud providers specific code from the [main tree](https://github.com/kubernetes/kubernetes/tree/master/pkg/cloudprovider/providers) as it's now. The idea here is to have each cloud provider maintaining its code in a separate repository. What's going to change for the kubernetes admin is that instead of passing `cloud-provider=<provider>` it will pass it `cloud-provider=external` and pass the credentials and other attributes to a new component called `cloud-controller-manager`.
 
 At the moment I'm writing this, there is no support for OpenStack as an external cloud provider yet. I've described my efforts on [this issue](https://github.com/kubernetes/kubernetes/issues/52276).
 
@@ -266,5 +266,7 @@ I've found some problems during this, which I intend to solve in a short future
 * Documentation is still poor (feature in development, I suppose)
 * (Federation) Both External IPs, private and public are written in DNS zone
 * (Federation) When service is unhealthy, DNS records aren't properly managed
+* (Federation) Annotation of floating-network should be passed to federation control plane, which means that it can't work if we have more than one OpenStack cluster, as all clusters would share the same network-id
+* (Federation) Annotation of floating-network should be passed to all clusters in federation, even if they're not OpenStack
 
 Thanks! If anything, contact me at henriquecostatruta@gmail.com or `htruta` in Kubernetes Slack.
