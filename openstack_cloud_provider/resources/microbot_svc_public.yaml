@@ -7,7 +7,6 @@ metadata:
   namespace: default
   annotations:
     service.beta.kubernetes.io/openstack-internal-load-balancer: "false"
-    loadbalancer.openstack.org/floating-network-id: "9cdf8226-fd6c-499a-994e-d12e51a498af"
 spec:
   ports:
   - port: 80

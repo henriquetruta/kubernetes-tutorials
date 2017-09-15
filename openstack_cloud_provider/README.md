@@ -9,7 +9,6 @@ This tutorial assumes you have:
 * SSH access to the kubernetes cluster nodes (master and slaves)
 * Access to an OpenStack cloud, and this cloud is reachable by the Kubernetes nodes, i.e. they can access Keystone to authenticate and are able to communicate with Neutron
 * A basic understanding of OpenStack resources, such as projects, domains, load balancers
-* (Optional): If you want to use Floating IPs to expose your LoadBalancers, you must use a Kubernetes version >= 1.8
 
 ## Hands-on
 
@@ -27,6 +26,7 @@ domain-id=2a73b8f597c04551a0fdc8e95544be8a
 
 [LoadBalancer]
 subnet-id=6937f8fa-858d-4bc9-a3a5-18d2c957166a
+floating-network-id=9cdf8226-fd6c-499a-994e-d12e51a498af
 ```
 
 Where:
@@ -36,6 +36,7 @@ Where:
 * `tenant-id` is the id of the project (tenant) you want to create your resources on
 * `domain-id`is the id of the domain your user belongs to
 * `subnet-id` is the id of the subnet you want to create your loadbalancer on. Get it in Network > Networks and click on the respective network to get its subnets
+* `floating-network-id` is the id of the network you want to create your floating IP on. Emit this option if you don't want it
 
 There are other sections we're not going to cover here, such as the one that provides volumes to Kubernetes via Cinder:
 
@@ -142,6 +143,8 @@ systemctl daemon-reload
 systemctl restart kubelet
 ```
 
+> Note: Currently, kube-apiserver also has cloud-provider parameters, however they're not strictly necessary and should be removed shortly. This is addressed in this [issue](https://github.com/kubernetes/kubernetes/issues/49402).
+
 ### Checking if it worked
 
 There are several ways to see if your changes were successfully applied. One of them is to look for the processes running in the nodes. For example, in the any node you can see whether the `kubelet` is running with the `cloud` properties you set. Check it with:
@@ -221,20 +224,19 @@ And you can see that `microbot-4136705477-l9m52` is in our pods list.
 
 #### Public LB
 
-The other option to expose the service, is to make it publicly available, which happens if you have free Floating IPs in your OpenStack project. If you do have, you can create the service using the `microbot_svc_public` file. The only difference here is that we tell Kubernetes that we don't want a service that is only internal and we specify the public network to expose the service. If you open this file, you'll see the two new fields, passed through annotations:
+The other option to expose the service, is to make it publicly available, which happens if you have free Floating IPs in your OpenStack project. If you do have, you can create the service using the `microbot_svc_public` file. The only difference here is that we tell Kubernetes that we don't want a service that is only internal and we specify the public network to expose the service. If you open this file, you'll see the an annotation:
 
 ```yaml
 $ cat resources/microbot_svc_public.yaml
 ...
   annotations:
     service.beta.kubernetes.io/openstack-internal-load-balancer: "false"
-    loadbalancer.openstack.org/floating-network-id: "9cdf8226-fd6c-499a-994e-d12e51a498af"
 ...
 ```
 
-> Note: This is only available in Kubernetes versions >=1.8, which in the time I'm writing this is in 1.8.0 alpha 3.
+> Note: Those annotations are only available in Kubernetes versions >=1.8, which in the time I'm writing this is in 1.8.0 alpha 3. In previous versions, Floating IP is always created if a `floating-network-id` is provided in the `cloud.conf` file.
 
-Here, you just need to edit the `floating-network-id` field to have the ID of your public network, and then run:
+Here, you just need to run:
 
 ```bash
 $ kubectl create -f resources/microbot_svc_public.yaml
@@ -246,6 +248,12 @@ LoadBalancer Ingress: 10.11.4.52, 150.46.85.53
 ```
 
 You can see here that my Load Balancer got two IP addresses. The first, private, and the second, a public one. If you `curl` either of them, you should get the same result.
+
+> Note: Even if you haven't passed the `floating-network-id` in `cloud.conf` file, you can still provide this in application time, by adding the following annotation in the same section of the other one.:
+
+```yaml
+    loadbalancer.openstack.org/floating-network-id: "9cdf8226-fd6c-499a-994e-d12e51a498af"
+```
 
 And that's it! You exposed your service as Load Balancer, using OpenStack as cloud provider!
 
@@ -259,14 +267,13 @@ If you want to keep track this migration to external cloud providers, which will
 
 ## Issues
 
-I've found some problems during this, which I intend to solve in a short future
+I've found some problems during this, which I intend to address (at least a part of it) in a short future
 
 * Using OpenStack as `external`, which will be the default soon
-* We should have a way of telling Kubernetes we don't want both private and public IPs, but only public
+* We should have a way of telling Kubernetes we don't want both private and public IPs, but only public. [Issue](https://github.com/kubernetes/kubernetes/issues/52566)
 * Documentation is still poor (feature in development, I suppose)
 * (Federation) Both External IPs, private and public are written in DNS zone
-* (Federation) When service is unhealthy, DNS records aren't properly managed
-* (Federation) Annotation of floating-network should be passed to federation control plane, which means that it can't work if we have more than one OpenStack cluster, as all clusters would share the same network-id
-* (Federation) Annotation of floating-network should be passed to all clusters in federation, even if they're not OpenStack
+* (Federation) When service is unhealthy, DNS records aren't properly managed. [Issue](https://github.com/kubernetes/kubernetes/issues/52568)
+* (Federation) Annotation of floating-network/private service should be passed to all clusters in federation, even if they're not OpenStack
 
 Thanks! If anything, contact me at henriquecostatruta@gmail.com or `htruta` in Kubernetes Slack.
